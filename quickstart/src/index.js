@@ -1,14 +1,30 @@
 'use strict';
 
 var Video = require('twilio-video');
+window.TwilioVideo = Video;
 
 var activeRoom;
 var previewTracks;
 var identity;
 var roomName;
 
+var packageJson = require('../../package.json')
+
+function is2xVersion(pJson = packageJson.dependencies) {
+  const twilioVersion = pJson['twilio-video'];
+  return twilioVersion.includes('2.0.0');
+}
+
+function getParticipant(publication, participant) {
+  if( !participant && !is2xVersion() ){
+    participant = publication;
+  }
+  return participant
+}
+
 // Attach the Tracks to the DOM.
 function attachTracks(tracks, container) {
+  console.debug(`attachTracks `, tracks, container);
   tracks.forEach(function(track) {
     container.appendChild(track.attach());
   });
@@ -16,6 +32,7 @@ function attachTracks(tracks, container) {
 
 // Attach the Participant's Tracks to the DOM.
 function attachParticipantTracks(participant, container) {
+  console.debug(`attachParticipantTracks `, participant, container);
   var tracks = getTracks(participant);
   attachTracks(tracks, container);
 }
@@ -55,8 +72,11 @@ $.getJSON('/token', function(data) {
     log("Joining room '" + roomName + "'...");
     var connectOptions = {
       name: roomName,
-      logLevel: 'debug'
+      logLevel: 'debug',
+      video: { width:480, height:360, name:'camera' }
     };
+
+    log('print contrains : ', connectOptions);
 
     if (previewTracks) {
       connectOptions.tracks = previewTracks;
@@ -88,8 +108,8 @@ function getTracks(participant) {
 // Successfully connected!
 function roomJoined(room) {
   window.room = activeRoom = room;
-
-  log("Joined as '" + identity + "'");
+  log('roomJoined')
+  log(`Joined as ${identity}`);
   document.getElementById('button-join').style.display = 'none';
   document.getElementById('button-leave').style.display = 'inline';
 
@@ -108,11 +128,15 @@ function roomJoined(room) {
 
   // When a Participant joins the Room, log the event.
   room.on('participantConnected', function(participant) {
+    log('participantConnected');
     log("Joining: '" + participant.identity + "'");
   });
 
   // When a Participant's Track is subscribed to, attach it to the DOM.
   room.on('trackSubscribed', function(track, publication, participant) {
+    // 2x & 1x compatible patch
+    log('trackSubscribed');
+    participant = getParticipant(publication, participant);
     log("Subscribed to " + participant.identity + "'s track: " + track.kind);
     var previewContainer = document.getElementById('remote-media');
     attachTracks([track], previewContainer);
@@ -120,12 +144,16 @@ function roomJoined(room) {
 
   // When a Participant's Track is unsubscribed from, detach it from the DOM.
   room.on('trackUnsubscribed', function(track, publication, participant) {
+    log('trackUnsubscribed');
+    // 2x & 1x compatible patch
+    participant = getParticipant(publication, participant);
     log("Unsubscribed from " + participant.identity + "'s track: " + track.kind);
     detachTracks([track]);
   });
 
   // When a Participant leaves the Room, detach its Tracks.
   room.on('participantDisconnected', function(participant) {
+    log('participantDisconnected');
     log("RemoteParticipant '" + participant.identity + "' left the room");
     detachParticipantTracks(participant);
   });
@@ -133,6 +161,7 @@ function roomJoined(room) {
   // Once the LocalParticipant leaves the room, detach the Tracks
   // of all Participants, including that of the LocalParticipant.
   room.on('disconnected', function() {
+    log('disconnected');
     log('Left');
     if (previewTracks) {
       previewTracks.forEach(function(track) {
